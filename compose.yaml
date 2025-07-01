@@ -15,7 +15,7 @@ services:
       - app-network
 
   migrations:
-    build: .
+    image: mkaltenr/self-study-13-example:app-0.4.0
     command: sh -c "npm ci --save-dev && npm run migrate"
     depends_on:
       - database

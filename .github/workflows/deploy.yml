@@ -103,14 +103,15 @@ jobs:
 
       - name: Deploy to Staging Environment
         run: |
-          ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} "
+            ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} "
             cd /home/ubuntu/exercise13 &&
             docker pull mkaltenr/self-study-13-example:app-${{ needs.deliver.outputs.version }} &&
             docker-compose -f compose.yaml stop ${{ steps.detect-staging.outputs.inactive }} &&
             docker-compose -f compose.yaml rm -f ${{ steps.detect-staging.outputs.inactive }} || true &&
             sed -i \"/${{ steps.detect-staging.outputs.inactive }}:/,/container_name:/ {s|image: mkaltenr/self-study-13-example:app-.*|image: mkaltenr/self-study-13-example:app-${{ needs.deliver.outputs.version }}|}\" compose.yaml &&
+            sed -i \"/migrations:/,/image:/ s|image: mkaltenr/self-study-13-example:app-.*|image: mkaltenr/self-study-13-example:app-${{ needs.deliver.outputs.version }}|\" compose.yaml &&
             docker-compose -f compose.yaml up -d --force-recreate ${{ steps.detect-staging.outputs.inactive }}
-          "
+            "
 
   # 4. Blue/Green Switch Traffic
   switch-traffic:
