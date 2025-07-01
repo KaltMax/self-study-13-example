@@ -16,7 +16,7 @@ services:
 
   migrations:
     image: mkaltenr/self-study-13-example:app-0.4.0
-    command: sh -c "npm ci --save-dev && npm run migrate"
+    command: sh -c "npm run migrate"
     depends_on:
       - database
     env_file:
