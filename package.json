@@ -1,6 +1,6 @@
 {
   "name": "self-study-13-example",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "The self study 13 of continuous integration",
   "main": "index.js",
   "scripts": {
