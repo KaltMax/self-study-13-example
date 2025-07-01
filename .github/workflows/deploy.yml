@@ -1,0 +1,138 @@
+name: Blue/Green Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  # 1. Build the Docker image
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.package-version.outputs.VERSION }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Extract version from package.json
+        id: package-version
+        run: |
+          VERSION=$(jq -r '.version' package.json)
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build Docker image
+        run: |
+          docker build -t mkaltenr/self-study-13-example:app-${{ steps.package-version.outputs.VERSION }} .
+
+      - name: Save Docker image as artifact
+        run: |
+          docker save mkaltenr/self-study-13-example:app-${{ steps.package-version.outputs.VERSION }} > image.tar
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: image.tar
+          retention-days: 1
+
+  # 2. Deliver the Docker image to Docker Hub
+  deliver:
+    name: Deliver to Docker Hub
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ needs.build.outputs.version }}
+    steps:
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Load Docker image
+        run: |
+          docker load < image.tar
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push Docker image
+        run: |
+          docker push mkaltenr/self-study-13-example:app-${{ needs.build.outputs.version }}
+
+  # 3. Deploy the Docker image to the EC2 instance
+  deploy-staging:
+    name: Deploy Stage
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: deliver
+    outputs:
+      active: ${{ steps.detect-staging.outputs.active }}
+      inactive: ${{ steps.detect-staging.outputs.inactive }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Detect Staging Environment
+        id: detect-staging
+        run: |
+          ACTIVE=$(ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} "cd /home/ubuntu/exercise13 && grep 'upstream frontend_production' -A 2 nginx-site/nginx.conf | grep server | grep -o 'frontend-[a-z]*'")
+          if [ "$ACTIVE" = "frontend-blue" ]; then
+            INACTIVE=frontend-green
+          else
+            INACTIVE=frontend-blue
+          fi
+          echo "ACTIVE=$ACTIVE"
+          echo "INACTIVE=$INACTIVE"
+          echo "active=$ACTIVE" >> $GITHUB_OUTPUT
+          echo "inactive=$INACTIVE" >> $GITHUB_OUTPUT
+
+      - name: Deploy to Staging Environment
+        run: |
+          ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} "
+            cd /home/ubuntu/exercise13 &&
+            docker pull mkaltenr/self-study-13-example:app-${{ needs.deliver.outputs.version }} &&
+            docker-compose -f compose.yaml stop ${{ steps.detect-staging.outputs.inactive }} &&
+            docker-compose -f compose.yaml rm -f ${{ steps.detect-staging.outputs.inactive }} || true &&
+            sed -i \"/${{ steps.detect-staging.outputs.inactive }}:/,/container_name:/ {s|image: mkaltenr/self-study-13-example:app-.*|image: mkaltenr/self-study-13-example:app-${{ needs.deliver.outputs.version }}|}\" compose.yaml &&
+            docker-compose -f compose.yaml up -d --force-recreate --pull ${{ steps.detect-staging.outputs.inactive }}
+          "
+
+  # 4. Blue/Green Switch Traffic
+  switch-traffic:
+    name: Switch Blue/Green Traffic
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Switch Blue/Green Traffic
+        run: |
+          ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} "
+            cd /home/ubuntu/exercise13 && 
+            cp nginx-site/nginx.conf nginx-site/nginx.conf.bak &&
+            sed -i '/upstream web_blue {/{n;s|server .*|server '"${{ needs.deploy-staging.outputs.inactive }}"':80;|;}' nginx-site/nginx.conf
+            sed -i '/upstream web_green {/{n;s|server .*|server '"${{ needs.deploy-staging.outputs.active }}"':80;|;}' nginx-site/nginx.conf
+            docker exec nginx nginx -t && 
+            docker exec nginx nginx -s reload
+          "

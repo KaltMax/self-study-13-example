@@ -8,8 +8,6 @@ RUN npm ci
 
 COPY . .
 
-RUN cat .env
-
 RUN npm run build
 
 RUN npm run prisma:generate
