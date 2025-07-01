@@ -90,11 +90,11 @@ jobs:
       - name: Detect Staging Environment
         id: detect-staging
         run: |
-          ACTIVE=$(ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} "cd /home/ubuntu/exercise13 && grep 'upstream frontend_production' -A 2 nginx-site/nginx.conf | grep server | grep -o 'frontend-[a-z]*'")
-          if [ "$ACTIVE" = "web-blue" ]; then
-            INACTIVE=web-green
+          ACTIVE=$(ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} "cd /home/ubuntu/exercise13 && grep 'upstream web_blue' -A 2 nginx-site/nginx.conf | grep server | grep -o 'web_[a-z]*'")
+          if [ "$ACTIVE" = "web_blue" ]; then
+          INACTIVE=web_green
           else
-            INACTIVE=web-blue
+          INACTIVE=web_blue
           fi
           echo "ACTIVE=$ACTIVE"
           echo "INACTIVE=$INACTIVE"
