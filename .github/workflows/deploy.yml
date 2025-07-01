@@ -91,10 +91,10 @@ jobs:
         id: detect-staging
         run: |
           ACTIVE=$(ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.EC2_HOST }} "cd /home/ubuntu/exercise13 && grep 'upstream frontend_production' -A 2 nginx-site/nginx.conf | grep server | grep -o 'frontend-[a-z]*'")
-          if [ "$ACTIVE" = "frontend-blue" ]; then
-            INACTIVE=frontend-green
+          if [ "$ACTIVE" = "web-blue" ]; then
+            INACTIVE=web-green
           else
-            INACTIVE=frontend-blue
+            INACTIVE=web-blue
           fi
           echo "ACTIVE=$ACTIVE"
           echo "INACTIVE=$INACTIVE"
